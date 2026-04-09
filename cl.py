@@ -255,11 +255,15 @@ if (b2c_files or b2b_files) and pm_file:
                                         all_unfiltered.append(df)
                                     
                                     del df, is_shipment
-                                    gc.collect()
                                     
-                                    # Update Diagnostic Log
-                                    logs.append(f"✅ [{processed_count}] {file_name}")
-                                    log_container.code("\n".join(logs[-10:])) # Show last 10 processed items
+                                    # Throttled GC to keep the event loop responsive
+                                    if processed_count % 20 == 0:
+                                        gc.collect()
+                                    
+                                    # Update Diagnostic Log (Only every 5 files to reduce WebSocket traffic)
+                                    if processed_count % 5 == 0 or processed_count == total_files:
+                                        logs.append(f"✅ [{processed_count}] {file_name}")
+                                        log_container.code("\n".join(logs[-10:]))
 
                         except Exception as e:
                             err_msg = f"❌ Error in {file_name}: {str(e)}"
@@ -306,8 +310,8 @@ if (b2c_files or b2b_files) and pm_file:
             # Helper to clean numeric columns
             def clean_numeric(df, col):
                 if df.empty or col not in df.columns: return df
-                # Ensure it's string first, then remove garbage, then convert
-                df[col] = df[col].astype(str).str.replace('[₹, ]', '', regex=True)
+                # Memory-safe cleaning: avoid creating massive temporary string copies
+                df[col] = df[col].astype(str).str.replace('₹', '', regex=False).str.replace(',', '', regex=False).str.replace(' ', '', regex=False)
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
                 # Downcast to save 50% RAM for numeric columns
                 df[col] = df[col].astype('int32') if col == 'Quantity' else df[col].astype('float32')
@@ -385,7 +389,9 @@ if (b2c_files or b2b_files) and pm_file:
                 del f_b2c, f_b2b, u_b2c, u_b2b, t_b2c, t_b2b
                 gc.collect()
 
-                pm_df = pd.read_excel(pm_file)
+                # Optimization: Load only necessary columns from PM file
+                pm_relevant_cols = ['ASIN', 'Brand', 'Brand Manager', 'Vendor SKU Codes', 'Product Name']
+                pm_df = pd.read_excel(pm_file, usecols=lambda x: x in pm_relevant_cols)
                 cat_df = pd.read_excel(cat_file) if cat_file else None
                 
                 # Store results in session state

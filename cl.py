@@ -178,8 +178,8 @@ if (b2c_files or b2b_files) and pm_file:
             
             # v2.5 Auto-High-Volume Safety Check (RAM + Count)
             total_upload_size = sum([f.size for f in zip_file_list]) if zip_file_list else 0
-            if (total_files > 12 or total_upload_size > 50 * 1024 * 1024) and not h_volume:
-                st.sidebar.warning(f"🚀 {segment} Auto-optimizing for Cloud RAM Safety ({total_files} files, {total_upload_size/1024/1024:.1f} MB)")
+            if (total_files > 12 or total_upload_size > 40 * 1024 * 1024) and not h_volume:
+                st.sidebar.warning(f"🚀 {segment} Cloud Safe Mode Active ({total_files} files, {total_upload_size/1024/1024:.1f} MB)")
                 h_volume = True
 
             progress_bar = st.progress(0, text=f"Preparing {segment} analysis...")
@@ -272,16 +272,30 @@ if (b2c_files or b2b_files) and pm_file:
                             log_container.code("\n".join(logs[-10:]))
                             continue
             
-            # Final concatenation - One big concat is better than many small ones
+            # Final consolidation phase using "Chunked Concat" to prevent RAM spikes
             status_text.text(f"📊 Consolidation Phase: {segment}")
             
-            filtered_combined = pd.concat(all_shipments, ignore_index=True) if all_shipments else pd.DataFrame()
-            del all_shipments
-            gc.collect()
-            
-            unfiltered_combined = pd.concat(all_unfiltered, ignore_index=True) if all_unfiltered else pd.DataFrame()
-            del all_unfiltered
-            gc.collect()
+            def safe_concat(df_list):
+                if not df_list: return pd.DataFrame()
+                # Process in batches of 10 to keep Peak RAM low
+                chunks = []
+                while df_list:
+                    batch = []
+                    for _ in range(min(10, len(df_list))):
+                        batch.append(df_list.pop(0))
+                    
+                    if batch:
+                        chunks.append(pd.concat(batch, ignore_index=True))
+                        del batch
+                        gc.collect()
+                
+                final_df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+                del chunks
+                gc.collect()
+                return final_df
+
+            filtered_combined = safe_concat(all_shipments)
+            unfiltered_combined = safe_concat(all_unfiltered)
             
             progress_bar.empty()
             status_text.empty()
@@ -374,22 +388,28 @@ if (b2c_files or b2b_files) and pm_file:
             with st.spinner("Processing files..."):
                 # Run sequential processing to save RAM
                 f_b2c, u_b2c, t_b2c = process_zip_files(b2c_files, high_volume_mode, "B2C")
+                
+                # B2B Processing
                 f_b2b, u_b2b, t_b2b = process_zip_files(b2b_files, high_volume_mode, "B2B")
                 
-                # Combine results
+                # Combine results incrementally to clear buffers immediately
                 f_combined = pd.concat([f_b2c, f_b2b], ignore_index=True)
+                del f_b2c, f_b2b
+                gc.collect()
+                
                 u_combined = pd.concat([u_b2c, u_b2b], ignore_index=True)
+                del u_b2c, u_b2b
+                gc.collect()
                 
                 # Combine transaction counts
                 t_counts = t_b2c.copy()
+                del t_b2c
                 for k, v in t_b2b.items():
                     t_counts[k] = t_counts.get(k, 0) + v
+                del t_b2b
                 st.session_state.transaction_counts = t_counts
-                    
-                del f_b2c, f_b2b, u_b2c, u_b2b, t_b2c, t_b2b
                 gc.collect()
 
-                # Optimization: Load only necessary columns from PM file
                 pm_relevant_cols = ['ASIN', 'Brand', 'Brand Manager', 'Vendor SKU Codes', 'Product Name']
                 pm_df = pd.read_excel(pm_file, usecols=lambda x: x in pm_relevant_cols)
                 cat_df = pd.read_excel(cat_file) if cat_file else None
@@ -742,10 +762,10 @@ if (b2c_files or b2b_files) and pm_file:
             )
             
             if selected_columns:
-                # Display row limit for large datasets to prevent browser crashes
-                row_limit = 10000
+                # Stricter row limit for Cloud stability
+                row_limit = 5000
                 if len(filtered_df) > row_limit:
-                    st.warning(f"⚠️ Showing only first {row_limit:,} rows for RAM stability. Full data is available in the Excel download below.")
+                    st.warning(f"⚠️ Showing only first {row_limit:,} rows for RAM stability. Full data is available in Excel below.")
                     display_df = filtered_df[selected_columns].head(row_limit).copy()
                 else:
                     display_df = filtered_df[selected_columns].copy()
@@ -786,7 +806,7 @@ if (b2c_files or b2b_files) and pm_file:
                 
                 if selected_columns_unfiltered:
                     # Apply row limit for unfiltered data as well
-                    row_limit_u = 10000
+                    row_limit_u = 5000
                     if len(unfiltered_combined_df) > row_limit_u:
                         st.warning(f"⚠️ Showing only first {row_limit_u:,} rows for RAM stability.")
                         display_unfiltered_df = unfiltered_combined_df[selected_columns_unfiltered].head(row_limit_u).copy()

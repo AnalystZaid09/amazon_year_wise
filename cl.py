@@ -697,9 +697,12 @@ if (b2c_files or b2b_files) and pm_file:
         with tab2:
             st.header("ASIN Analysis")
             
-            asin_index = ['Asin', 'Product Name', 'Brand']
+            asin_index = ['Asin']
+
             if 'Category' in filtered_df.columns:
                 asin_index.append('Category')
+            
+            asin_index += ['Product Name', 'Brand']
             
             asin_pivot = pd.pivot_table(
                 filtered_df,
@@ -1008,9 +1011,12 @@ if (b2c_files or b2b_files) and pm_file:
                     current_year_data_asin = processed_df[processed_df['Year'] == current_year_asin]
                     previous_year_data_asin = processed_df[processed_df['Year'] == previous_year_asin]
                     
-                    yoy_index = ['Asin', 'Brand']
+                    yoy_index = ['Asin']
+
                     if 'Category' in processed_df.columns:
                         yoy_index.append('Category')
+
+                    yoy_index += ['Brand']
                     
                     # Create ASIN pivots for each year
                     current_asin_pivot = pd.pivot_table(
@@ -1061,11 +1067,17 @@ if (b2c_files or b2b_files) and pm_file:
                     )
                     
                     # Reorder columns
-                    asin_comparison = asin_comparison[[
-                        'Asin', 'Brand',
-                        f'Quantity ({previous_year_asin})', f'Quantity ({current_year_asin})', 'Qty Difference', 'Qty % Change',
-                        f'Invoice Amount ({previous_year_asin})', f'Invoice Amount ({current_year_asin})', 'Amount Difference', 'Amount % Change'
-                    ]]
+                    cols = ['Asin']
+
+                    if 'Category' in asin_comparison.columns:
+                        cols.append('Category')
+                    
+                    cols += ['Brand',
+                             f'Quantity ({previous_year_asin})', f'Quantity ({current_year_asin})', 'Qty Difference', 'Qty % Change',
+                             f'Invoice Amount ({previous_year_asin})', f'Invoice Amount ({current_year_asin})', 'Amount Difference', 'Amount % Change'
+                    ]
+                    
+                    asin_comparison = asin_comparison[cols]
                     
                     # Sort by current year quantity descending
                     asin_comparison = asin_comparison.sort_values(by=f'Quantity ({current_year_asin})', ascending=False)
